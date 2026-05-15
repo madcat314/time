@@ -1,9 +1,13 @@
+沒問題，已將 setInterval 的更新頻率調整為 60000 毫秒（60秒），並保留了所有 Firebase 雲端同步的功能。
+
+請記得將程式碼中 const firebaseConfig 的內容替換為您在 Firebase 控制台取得的專屬設定。
+
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>雲端同步計時器</title>
+    <title>雲端同步計時器 - 60秒更新版</title>
     <style>
         :root {
             --bg: #000000;
@@ -77,29 +81,25 @@
     </div>
 
 <script type="module">
-    // --- Firebase SDK 載入 ---
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
     import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
-    // TODO: 請替換成你自己的 Firebase 專案設定
+    // --- 請在此處替換您的 Firebase 設定 ---
     const firebaseConfig = {
-  apiKey: "AIzaSyBjE2Lmb1SCd2ed4eL68ctZQslPC58xACo",
-  authDomain: "time-e0873.firebaseapp.com",
-  databaseURL: "https://time-e0873-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId: "time-e0873",
-  storageBucket: "time-e0873.firebasestorage.app",
-  messagingSenderId: "720761940648",
-  appId: "1:720761940648:web:625e4e6f1978a89d98309d"
-};
+        apiKey: "YOUR_API_KEY",
+        authDomain: "YOUR_PROJECT.firebaseapp.com",
+        databaseURL: "https://YOUR_PROJECT-default-rtdb.firebaseio.com",
+        projectId: "YOUR_PROJECT",
+        storageBucket: "YOUR_PROJECT.appspot.com",
+        messagingSenderId: "...",
+        appId: "..."
+    };
 
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
     const timersRef = ref(db, 'timers/');
 
-    // 全域變數
     window.timers = {};
-
-    // --- 核心同步邏輯 ---
 
     // 監聽雲端資料更新
     onValue(timersRef, (snapshot) => {
@@ -120,22 +120,20 @@
         set(ref(db, 'timers/' + i), window.timers[i]);
     };
 
-    // --- 初始化 UI ---
+    // 初始化 4 個計時器插槽
     for(let i=1; i<=4; i++) {
-        // 先建立預設資料，避免噴錯
         timers[i] = { d:0, h:0, m:0, rawInput:"", endTime:null, isPaused:false, pauseRemain:0, isFinished:false, frozenEndTime:null };
         createTimer(i);
     }
 
-    // 每秒更新 UI (讓倒數看起來順暢)
+    // 更新頻率設定為 60 秒 (60000 毫秒)
     setInterval(() => { 
         for(let i=1; i<=4; i++) updateUI(i); 
-    }, 1000);
+    }, 60000);
 
 </script>
 
 <script>
-    // 這裡放不依賴 Firebase SDK 的 UI 輔助函式
     function createTimer(idx) {
         if (document.getElementById(`card${idx}`)) return;
         const div = document.createElement('div');
@@ -196,7 +194,7 @@
                     t.frozenEndTime = t.endTime;
                     t.endTime = null; 
                     t.isFinished = true;
-                    window.save(i); // 同步結束狀態
+                    if (window.save) window.save(i);
                 }
             }
         } else if (t.isPaused) {
@@ -231,6 +229,18 @@
         const h = Math.floor((displayMins % 1440) / 60);
         const m = displayMins % 60;
         disp.innerText = `${d.toString().padStart(2,'0')}d ${h.toString().padStart(2,'0')}h ${m.toString().padStart(2,'0')}m`;
+        
+        refreshPageTitle();
+    }
+
+    function refreshPageTitle() {
+        let active = Object.values(window.timers).filter(t => t.endTime && !t.isPaused);
+        let done = Object.values(window.timers).filter(t => t.isFinished);
+        if (done.length > 0) document.title = "【DONE】";
+        else if (active.length > 0) {
+            let m = Math.ceil((active[0].endTime - Date.now()) / 60000);
+            document.title = `(${m}m)`;
+        } else document.title = "計時器";
     }
 
     function requestNotif() {
@@ -258,14 +268,16 @@
         t.d = parseInt(val.substring(0, 2));
         t.h = parseInt(val.substring(2, 4));
         t.m = parseInt(val.substring(4, 6));
-        window.save(i);
+        if (window.save) window.save(i);
+        updateUI(i);
     };
 
     window.clearInput = (i) => {
         const t = timers[i];
         if (t.endTime && !t.isPaused) return;
         Object.assign(t, { d:0, h:0, m:0, rawInput:"", endTime:null, isPaused:false, pauseRemain:0, isFinished:false, frozenEndTime:null });
-        window.save(i);
+        if (window.save) window.save(i);
+        updateUI(i);
     };
 
     window.toggle = (i) => {
@@ -282,12 +294,14 @@
             t.frozenEndTime = null;
             t.endTime = Date.now() + (totalM * 60000);
         }
-        window.save(i);
+        if (window.save) window.save(i);
+        updateUI(i);
     };
 
     window.reset = (i) => {
         window.timers[i] = { d:0, h:0, m:0, rawInput:"", endTime:null, isPaused:false, pauseRemain:0, isFinished:false, frozenEndTime:null };
-        window.save(i);
+        if (window.save) window.save(i);
+        updateUI(i);
     };
 </script>
 </body>
