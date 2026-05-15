@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>專業序列計時器 - 記錄凍結版</title>
+    <title>雲端同步計時器</title>
     <style>
         :root {
             --bg: #000000;
@@ -63,29 +63,81 @@
 
         .footer { margin-top: 30px; padding-bottom: 20px; width: 100%; display: flex; justify-content: center; }
         .notif-btn { background: #2C2C2E; color: #8E8E93; border: 1px solid #48484A; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 0.8rem; }
+        
+        .sync-status { font-size: 0.7rem; color: #34C759; margin-bottom: 10px; }
     </style>
 </head>
 <body>
 
+    <div id="syncStatus" class="sync-status">☁️ 雲端連線中...</div>
     <div class="grid" id="mainGrid"></div>
 
     <div class="footer">
         <button class="notif-btn" id="askNotif" onclick="requestNotif()">🔔 點擊開啟通知</button>
     </div>
 
-<script>
-    const timers = {};
+<script type="module">
+    // --- Firebase SDK 載入 ---
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
-    function requestNotif() {
-        Notification.requestPermission().then(p => {
-            if (p === "granted") {
-                document.getElementById('askNotif').innerText = "✅ 通知已開啟";
-                setTimeout(() => document.getElementById('askNotif').style.opacity = '0.3', 1500);
+    // TODO: 請替換成你自己的 Firebase 專案設定
+    const firebaseConfig = {
+  apiKey: "AIzaSyBjE2Lmb1SCd2ed4eL68ctZQslPC58xACo",
+  authDomain: "time-e0873.firebaseapp.com",
+  databaseURL: "https://time-e0873-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "time-e0873",
+  storageBucket: "time-e0873.firebasestorage.app",
+  messagingSenderId: "720761940648",
+  appId: "1:720761940648:web:625e4e6f1978a89d98309d"
+};
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+    const timersRef = ref(db, 'timers/');
+
+    // 全域變數
+    window.timers = {};
+
+    // --- 核心同步邏輯 ---
+
+    // 監聽雲端資料更新
+    onValue(timersRef, (snapshot) => {
+        const data = snapshot.val();
+        document.getElementById('syncStatus').innerText = "☁️ 雲端同步中 (已連線)";
+        if (data) {
+            for (let i = 1; i <= 4; i++) {
+                if (data[i]) {
+                    window.timers[i] = data[i];
+                    updateUI(i);
+                }
             }
-        });
+        }
+    });
+
+    // 儲存至雲端
+    window.save = function(i) {
+        set(ref(db, 'timers/' + i), window.timers[i]);
+    };
+
+    // --- 初始化 UI ---
+    for(let i=1; i<=4; i++) {
+        // 先建立預設資料，避免噴錯
+        timers[i] = { d:0, h:0, m:0, rawInput:"", endTime:null, isPaused:false, pauseRemain:0, isFinished:false, frozenEndTime:null };
+        createTimer(i);
     }
 
+    // 每秒更新 UI (讓倒數看起來順暢)
+    setInterval(() => { 
+        for(let i=1; i<=4; i++) updateUI(i); 
+    }, 1000);
+
+</script>
+
+<script>
+    // 這裡放不依賴 Firebase SDK 的 UI 輔助函式
     function createTimer(idx) {
+        if (document.getElementById(`card${idx}`)) return;
         const div = document.createElement('div');
         div.className = 'timer-card';
         div.id = `card${idx}`;
@@ -122,45 +174,39 @@
         return `${month}/${day} ${hours}:${mins}`;
     }
 
-    function save(i) {
-        const t = timers[i];
-        localStorage.setItem(`timer_frozen_v10_${i}`, JSON.stringify(t));
-    }
-
     function updateUI(i) {
-        const t = timers[i];
+        const t = window.timers[i];
+        if (!t) return;
         const card = document.getElementById(`card${i}`);
         const disp = document.getElementById(`disp${i}`);
         const etaDisp = document.getElementById(`eta${i}`);
         const btn = document.getElementById(`btnS${i}`);
         const stat = document.getElementById(`stat${i}`);
+        if (!card) return;
 
         let displayMins = 0;
         let now = Date.now();
 
         if (t.endTime && !t.isPaused) {
-            // 運行中
             displayMins = Math.ceil((t.endTime - now) / 60000);
             if (displayMins <= 0) {
                 displayMins = 0; 
-                sendNotification(i);
-                t.frozenEndTime = t.endTime; // 關鍵：結束瞬間凍結時間點
-                t.endTime = null; 
-                t.isFinished = true;
-                save(i); // 立即保存凍結狀態
+                if (!t.isFinished) {
+                    sendNotification(i);
+                    t.frozenEndTime = t.endTime;
+                    t.endTime = null; 
+                    t.isFinished = true;
+                    window.save(i); // 同步結束狀態
+                }
             }
         } else if (t.isPaused) {
-            // 暫停中
             displayMins = t.pauseRemain;
         } else if (t.isFinished) {
-            // 已結束
             displayMins = 0;
         } else {
-            // 待機中
             displayMins = (t.d * 1440 + t.h * 60 + t.m);
         }
 
-        // 渲染外觀
         if (t.isFinished) {
             card.className = "timer-card finished";
             btn.innerText = "完成";
@@ -177,7 +223,6 @@
             btn.innerText = t.isPaused ? "繼續" : "開始";
             btn.className = "btn-main start";
             stat.innerText = t.isPaused ? "PAUSED" : "READY";
-            // 預覽結束時間
             let previewEnd = now + (displayMins * 60000);
             etaDisp.innerText = displayMins > 0 ? "預計結束 " + formatFullDateTime(previewEnd) : "結束預計 --/-- --:--";
         }
@@ -186,18 +231,15 @@
         const h = Math.floor((displayMins % 1440) / 60);
         const m = displayMins % 60;
         disp.innerText = `${d.toString().padStart(2,'0')}d ${h.toString().padStart(2,'0')}h ${m.toString().padStart(2,'0')}m`;
-        
-        refreshPageTitle();
     }
 
-    function refreshPageTitle() {
-        let active = Object.values(timers).filter(t => t.endTime && !t.isPaused);
-        let done = Object.values(timers).filter(t => t.isFinished);
-        if (done.length > 0) document.title = "【DONE】";
-        else if (active.length > 0) {
-            let m = Math.ceil((active[0].endTime - Date.now()) / 60000);
-            document.title = `(${m}m)`;
-        } else document.title = "計時器";
+    function requestNotif() {
+        Notification.requestPermission().then(p => {
+            if (p === "granted") {
+                document.getElementById('askNotif').innerText = "✅ 通知已開啟";
+                setTimeout(() => document.getElementById('askNotif').style.opacity = '0.3', 1500);
+            }
+        });
     }
 
     function sendNotification(idx) {
@@ -216,14 +258,14 @@
         t.d = parseInt(val.substring(0, 2));
         t.h = parseInt(val.substring(2, 4));
         t.m = parseInt(val.substring(4, 6));
-        save(i); updateUI(i);
+        window.save(i);
     };
 
     window.clearInput = (i) => {
         const t = timers[i];
         if (t.endTime && !t.isPaused) return;
         Object.assign(t, { d:0, h:0, m:0, rawInput:"", endTime:null, isPaused:false, pauseRemain:0, isFinished:false, frozenEndTime:null });
-        save(i); updateUI(i);
+        window.save(i);
     };
 
     window.toggle = (i) => {
@@ -240,23 +282,13 @@
             t.frozenEndTime = null;
             t.endTime = Date.now() + (totalM * 60000);
         }
-        save(i); updateUI(i);
+        window.save(i);
     };
 
     window.reset = (i) => {
-        localStorage.removeItem(`timer_frozen_v10_${i}`);
-        timers[i] = { d:0, h:0, m:0, rawInput:"", endTime:null, isPaused:false, pauseRemain:0, isFinished:false, frozenEndTime:null };
-        updateUI(i);
+        window.timers[i] = { d:0, h:0, m:0, rawInput:"", endTime:null, isPaused:false, pauseRemain:0, isFinished:false, frozenEndTime:null };
+        window.save(i);
     };
-
-    for(let i=1; i<=4; i++) {
-        const saved = localStorage.getItem(`timer_frozen_v10_${i}`);
-        timers[i] = saved ? JSON.parse(saved) : { d:0, h:0, m:0, rawInput:"", endTime:null, isPaused:false, pauseRemain:0, isFinished:false, frozenEndTime:null };
-        createTimer(i);
-        updateUI(i);
-    }
-    
-    setInterval(() => { for(let i=1; i<=4; i++) updateUI(i); }, 60000);
 </script>
 </body>
 </html>
