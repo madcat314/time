@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>雲端同步計時器 - 60秒更新版</title>
+    <title>專業序列計時器 - 雲端同步版</title>
     <style>
         :root {
             --bg: #000000;
@@ -22,6 +22,9 @@
             display: flex; flex-direction: column; align-items: center; min-height: 100vh;
         }
         
+        .sync-status { font-size: 0.75rem; color: #8E8E93; margin-bottom: 10px; padding: 4px 12px; border-radius: 10px; background: #1c1c1e; }
+        .sync-online { color: #34C759; }
+
         .grid { 
             display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; 
             width: 100%; max-width: 1200px; flex-grow: 1;
@@ -63,13 +66,11 @@
 
         .footer { margin-top: 30px; padding-bottom: 20px; width: 100%; display: flex; justify-content: center; }
         .notif-btn { background: #2C2C2E; color: #8E8E93; border: 1px solid #48484A; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 0.8rem; }
-        
-        .sync-status { font-size: 0.7rem; color: #34C759; margin-bottom: 10px; }
     </style>
 </head>
 <body>
 
-    <div id="syncStatus" class="sync-status">☁️ 雲端連線中...</div>
+    <div id="syncStatus" class="sync-status">📡 正在連接 Firebase...</div>
     <div class="grid" id="mainGrid"></div>
 
     <div class="footer">
@@ -77,30 +78,41 @@
     </div>
 
 <script type="module">
+    // --- Firebase SDK 核心 ---
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
     import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
-    // --- 請在此處替換您的 Firebase 設定 ---
     const firebaseConfig = {
-  apiKey: "AIzaSyBjE2Lmb1SCd2ed4eL68ctZQslPC58xACo",
-  authDomain: "time-e0873.firebaseapp.com",
-  databaseURL: "https://time-e0873-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId: "time-e0873",
-  storageBucket: "time-e0873.firebasestorage.app",
-  messagingSenderId: "720761940648",
-  appId: "1:720761940648:web:625e4e6f1978a89d98309d"
-};
+        apiKey: "AIzaSyBjE2Lmb1SCd2ed4eL68ctZQslPC58xACo",
+        authDomain: "time-e0873.firebaseapp.com",
+        databaseURL: "https://time-e0873-default-rtdb.asia-southeast1.firebasedatabase.app",
+        projectId: "time-e0873",
+        storageBucket: "time-e0873.firebasestorage.app",
+        messagingSenderId: "720761940648",
+        appId: "1:720761940648:web:625e4e6f1978a89d98309d"
+    };
 
+    // 初始化 Firebase
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
     const timersRef = ref(db, 'timers/');
 
     window.timers = {};
 
-    // 監聽雲端資料更新
+    // 1. 本地先行初始化 (避免連線中畫面空白)
+    for(let i=1; i<=4; i++) {
+        window.timers[i] = { d:0, h:0, m:0, rawInput:"", endTime:null, isPaused:false, pauseRemain:0, isFinished:false, frozenEndTime:null };
+        createTimer(i);
+        updateUI(i);
+    }
+
+    // 2. 監聽雲端資料 (當電腦按開始，手機會自動跳動)
     onValue(timersRef, (snapshot) => {
         const data = snapshot.val();
-        document.getElementById('syncStatus').innerText = "☁️ 雲端同步中 (已連線)";
+        const statusEl = document.getElementById('syncStatus');
+        statusEl.innerText = "☁️ 雲端同步中";
+        statusEl.classList.add('sync-online');
+
         if (data) {
             for (let i = 1; i <= 4; i++) {
                 if (data[i]) {
@@ -111,18 +123,12 @@
         }
     });
 
-    // 儲存至雲端
-    window.save = function(i) {
+    // 3. 儲存函式
+    window.saveToCloud = function(i) {
         set(ref(db, 'timers/' + i), window.timers[i]);
     };
 
-    // 初始化 4 個計時器插槽
-    for(let i=1; i<=4; i++) {
-        timers[i] = { d:0, h:0, m:0, rawInput:"", endTime:null, isPaused:false, pauseRemain:0, isFinished:false, frozenEndTime:null };
-        createTimer(i);
-    }
-
-    // 更新頻率設定為 60 秒 (60000 毫秒)
+    // 4. 設定 60 秒更新一次 UI
     setInterval(() => { 
         for(let i=1; i<=4; i++) updateUI(i); 
     }, 60000);
@@ -130,6 +136,8 @@
 </script>
 
 <script>
+    // --- 介面功能邏輯 ---
+
     function createTimer(idx) {
         if (document.getElementById(`card${idx}`)) return;
         const div = document.createElement('div');
@@ -176,7 +184,6 @@
         const etaDisp = document.getElementById(`eta${i}`);
         const btn = document.getElementById(`btnS${i}`);
         const stat = document.getElementById(`stat${i}`);
-        if (!card) return;
 
         let displayMins = 0;
         let now = Date.now();
@@ -190,7 +197,7 @@
                     t.frozenEndTime = t.endTime;
                     t.endTime = null; 
                     t.isFinished = true;
-                    if (window.save) window.save(i);
+                    if (window.saveToCloud) window.saveToCloud(i);
                 }
             }
         } else if (t.isPaused) {
@@ -201,6 +208,7 @@
             displayMins = (t.d * 1440 + t.h * 60 + t.m);
         }
 
+        // 外觀渲染
         if (t.isFinished) {
             card.className = "timer-card finished";
             btn.innerText = "完成";
@@ -254,6 +262,8 @@
         }
     }
 
+    // --- 按鈕操作 ---
+
     window.pressNum = (i, num) => {
         const t = timers[i];
         if (t.endTime && !t.isPaused) return;
@@ -264,16 +274,16 @@
         t.d = parseInt(val.substring(0, 2));
         t.h = parseInt(val.substring(2, 4));
         t.m = parseInt(val.substring(4, 6));
-        if (window.save) window.save(i);
         updateUI(i);
+        if (window.saveToCloud) window.saveToCloud(i);
     };
 
     window.clearInput = (i) => {
         const t = timers[i];
         if (t.endTime && !t.isPaused) return;
         Object.assign(t, { d:0, h:0, m:0, rawInput:"", endTime:null, isPaused:false, pauseRemain:0, isFinished:false, frozenEndTime:null });
-        if (window.save) window.save(i);
         updateUI(i);
+        if (window.saveToCloud) window.saveToCloud(i);
     };
 
     window.toggle = (i) => {
@@ -290,14 +300,14 @@
             t.frozenEndTime = null;
             t.endTime = Date.now() + (totalM * 60000);
         }
-        if (window.save) window.save(i);
         updateUI(i);
+        if (window.saveToCloud) window.saveToCloud(i);
     };
 
     window.reset = (i) => {
         window.timers[i] = { d:0, h:0, m:0, rawInput:"", endTime:null, isPaused:false, pauseRemain:0, isFinished:false, frozenEndTime:null };
-        if (window.save) window.save(i);
         updateUI(i);
+        if (window.saveToCloud) window.saveToCloud(i);
     };
 </script>
 </body>
